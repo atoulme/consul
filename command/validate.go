@@ -2,7 +2,6 @@ package command
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/consul/agent/config"
 	"github.com/hashicorp/consul/configutil"
@@ -12,10 +11,27 @@ import (
 // verify config files
 type ValidateCommand struct {
 	BaseCommand
+
+	// flags
+	configFiles []string
+	quiet       bool
+}
+
+func (c *ValidateCommand) initFlags() {
+	c.InitFlagSet()
+	c.FlagSet.Var((*configutil.AppendSliceValue)(&c.configFiles), "config-file",
+		"Path to a JSON file to read configuration from. This can be specified multiple times.")
+	c.FlagSet.Var((*configutil.AppendSliceValue)(&c.configFiles), "config-dir",
+		"Path to a directory to read configuration files from. This will read every file ending in "+
+			".json as configuration in this directory in alphabetical order.")
+	c.FlagSet.BoolVar(&c.quiet, "quiet", false,
+		"When given, a successful run will produce no output.")
+	c.HideFlags("config-file", "config-dir")
 }
 
 func (c *ValidateCommand) Help() string {
-	helpText := `
+	c.initFlags()
+	return c.HelpCommand(`
 Usage: consul validate [options] FILE_OR_DIRECTORY...
 
   Performs a basic sanity test on Consul configuration files. For each file
@@ -26,40 +42,26 @@ Usage: consul validate [options] FILE_OR_DIRECTORY...
 
   Returns 0 if the configuration is valid, or 1 if there are problems.
 
-` + c.BaseCommand.Help()
-
-	return strings.TrimSpace(helpText)
+`)
 }
 
 func (c *ValidateCommand) Run(args []string) int {
-	var configFiles []string
-	var quiet bool
-
-	f := c.BaseCommand.NewFlagSet(c)
-	f.Var((*configutil.AppendSliceValue)(&configFiles), "config-file",
-		"Path to a JSON file to read configuration from. This can be specified multiple times.")
-	f.Var((*configutil.AppendSliceValue)(&configFiles), "config-dir",
-		"Path to a directory to read configuration files from. This will read every file ending in "+
-			".json as configuration in this directory in alphabetical order.")
-	f.BoolVar(&quiet, "quiet", false,
-		"When given, a successful run will produce no output.")
-	c.BaseCommand.HideFlags("config-file", "config-dir")
-
-	if err := c.BaseCommand.Parse(args); err != nil {
+	c.initFlags()
+	if err := c.FlagSet.Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
 	}
 
-	if len(f.Args()) > 0 {
-		configFiles = append(configFiles, f.Args()...)
+	if len(c.FlagSet.Args()) > 0 {
+		c.configFiles = append(c.configFiles, c.FlagSet.Args()...)
 	}
 
-	if len(configFiles) < 1 {
+	if len(c.configFiles) < 1 {
 		c.UI.Error("Must specify at least one config file or directory")
 		return 1
 	}
 
-	b, err := config.NewBuilder(config.Flags{ConfigFiles: configFiles})
+	b, err := config.NewBuilder(config.Flags{ConfigFiles: c.configFiles})
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Config validation failed: %v", err.Error()))
 		return 1
@@ -69,7 +71,7 @@ func (c *ValidateCommand) Run(args []string) int {
 		return 1
 	}
 
-	if !quiet {
+	if !c.quiet {
 		c.UI.Output("Configuration is valid!")
 	}
 	return 0

@@ -2,7 +2,6 @@ package command
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/consul/agent/config"
 	"github.com/hashicorp/consul/configutil"
@@ -12,10 +11,23 @@ import (
 // verify config files
 type ConfigTestCommand struct {
 	BaseCommand
+
+	// flags
+	configFiles []string
+}
+
+func (c *ConfigTestCommand) initFlags() {
+	c.InitFlagSet()
+	c.FlagSet.Var((*configutil.AppendSliceValue)(&c.configFiles), "config-file",
+		"Path to a JSON file to read configuration from. This can be specified multiple times.")
+	c.FlagSet.Var((*configutil.AppendSliceValue)(&c.configFiles), "config-dir",
+		"Path to a directory to read configuration files from. This will read every file ending in "+
+			".json as configuration in this directory in alphabetical order.")
 }
 
 func (c *ConfigTestCommand) Help() string {
-	helpText := `
+	c.initFlags()
+	return c.HelpCommand(`
 Usage: consul configtest [options]
 
   DEPRECATED. Use the 'consul validate' command instead.
@@ -28,31 +40,21 @@ Usage: consul configtest [options]
 
   Returns 0 if the configuration is valid, or 1 if there are problems.
 
-` + c.BaseCommand.Help()
-
-	return strings.TrimSpace(helpText)
+`)
 }
 
 func (c *ConfigTestCommand) Run(args []string) int {
-	var configFiles []string
-
-	f := c.BaseCommand.NewFlagSet(c)
-	f.Var((*configutil.AppendSliceValue)(&configFiles), "config-file",
-		"Path to a JSON file to read configuration from. This can be specified multiple times.")
-	f.Var((*configutil.AppendSliceValue)(&configFiles), "config-dir",
-		"Path to a directory to read configuration files from. This will read every file ending in "+
-			".json as configuration in this directory in alphabetical order.")
-
-	if err := c.BaseCommand.Parse(args); err != nil {
+	c.initFlags()
+	if err := c.FlagSet.Parse(args); err != nil {
 		return 1
 	}
 
-	if len(configFiles) <= 0 {
+	if len(c.configFiles) <= 0 {
 		c.UI.Error("Must specify config using -config-file or -config-dir")
 		return 1
 	}
 
-	b, err := config.NewBuilder(config.Flags{ConfigFiles: configFiles})
+	b, err := config.NewBuilder(config.Flags{ConfigFiles: c.configFiles})
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Config validation failed: %v", err.Error()))
 		return 1
